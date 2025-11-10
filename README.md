@@ -7,7 +7,7 @@ O sistema foi desenvolvido com foco em organização de dados relacionais, opera
 
 ##  Estrutura geral do projeto
 
-| `Codigoecommerce.sql` | Contém a criação do banco de dados `ecommerce`, tabelas e inserções iniciais. 
+| `Codigoecommerce.sql` | Contém a criação do banco de dados ecommerce, tabelas e inserções iniciais. 
 
 
 | `codigopythonecommerce.py` | Código principal em Python com as operações de consulta, inserção, atualização e exclusão de dados. 
