@@ -227,11 +227,11 @@ Essas tabelas possuem chaves primárias, estrangeiras e relacionamentos bem defi
  **Biblioteca:** `mysql.connector` (nativa do pacote `mysql-connector-python`)  
  **Ambiente de desenvolvimento:** XAMPP / LAMPP (para o servidor local)
 
- ##Modelo conceitual
+ ## Modelo conceitual
 
  --lulu coloca
 
- ##Modelo lógico
+ ## Modelo lógico
 
  --lulu coloca
 
