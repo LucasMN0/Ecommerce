@@ -114,9 +114,6 @@ def preencher_dados_nativos(conn):
         print("Não foi possível preencher dados: Conexão inválida.")
         return
 
-    # Usamos execute_query para o restante das inserções, que gerencia o cursor.
-    # O cursor é aberto e fechado dentro da execute_query
-    
     # ========================
     # INSERIR FUNCIONÁRIOS
     # ========================
@@ -141,7 +138,6 @@ def preencher_dados_nativos(conn):
         VALUES (%s, %s, %s, %s, %s)
     """
     
-    # O execute_query não tem executemany. Usamos cursor diretamente.
     cursor = conn.cursor()
     cursor.executemany(query_func, funcionarios_data)
     conn.commit()
@@ -214,15 +210,27 @@ def preencher_dados_nativos(conn):
 
     print("\n[SUCESSO] Dados nativos inseridos com sucesso!")
 
+# ------------------------------------------------------------------
+# FUNÇÃO MODIFICADA: Adicionada opção 3 para Voltar/Cancelar e emojis removidos
+# ------------------------------------------------------------------
 def criar_e_destruir_db():
-    """ADMIN: Preenche o banco de dados com dados nativos, assumindo que o DDL já foi criado."""
+    """ADMIN: Limpa o banco (TRUNCATE) e opcionalmente insere dados nativos."""
     if not check_permission(['Administrador']):
         return
 
-    print("\n--- ATENÇÃO: Esta opção tentará preencher dados nativos.")
-    confirm = input("Deseja tentar preencher dados nativos no DB 'ecommerce' existente? (s/n): ").strip().lower()
-    if confirm != 's':
+    print("\n--- GERENCIAMENTO DE DADOS NATIVOS (ADMIN) ---")
+    print("1. LIMPAR E PREENCHER (Dados de teste: clientes, produtos, etc.)")
+    print("2. LIMPAR APENAS (Deixar todas as tabelas ZERADAS)")
+    print("3. Voltar/Cancelar") # Nova opção de cancelamento
+    
+    escolha_setup = input("Escolha uma opção: ").strip()
+    
+    if escolha_setup == '3':
         print("Ação cancelada pelo usuário.")
+        return
+
+    if escolha_setup not in ['1', '2']:
+        print("[ERRO] Opção inválida.")
         return
 
     conn = get_db_connection()
@@ -232,9 +240,14 @@ def criar_e_destruir_db():
 
     cursor = None
     try:
+        confirm = input(f"Confirma a limpeza das tabelas (TRUNCATE)? Esta ação é irreversível! (s/n): ").strip().lower()
+        if confirm != 's':
+            print("Ação cancelada pelo usuário.")
+            return
+
         cursor = conn.cursor()
 
-        print("\n> Limpando tabelas antes do preenchimento...")
+        print("\n> Limpando tabelas...")
         comandos_limpeza = [
             "SET FOREIGN_KEY_CHECKS = 0",
             "TRUNCATE TABLE venda_produto",
@@ -252,15 +265,19 @@ def criar_e_destruir_db():
 
         conn.commit()
         print("> Tabelas limpas com sucesso.")
+        
+        # Opção 1: Limpar e Preencher
+        if escolha_setup == '1':
+            print("\n> Iniciando preenchimento com dados nativos...")
+            preencher_dados_nativos(conn)
+        
+        # Opção 2: Limpar Apenas
+        elif escolha_setup == '2':
+            print("\n[SUCESSO] O banco de dados foi limpo e está ZERADO.")
 
-        print("\n> Iniciando preenchimento com dados nativos...")
-        preencher_dados_nativos(conn)
-        print("> Dados nativos inseridos com sucesso!")
 
-    except TypeError as te:
-        print(f"[ERRO DE TIPO] Verifique o uso de execute/executemany em 'preencher_dados_nativos': {te}")
     except Exception as e:
-        print(f"[ERRO GERAL] Ocorreu um erro ao preencher os dados nativos: {e}")
+        print(f"[ERRO GERAL] Erro durante a tentativa de preenchimento/limpeza: {e}")
     finally:
         if cursor:
             cursor.close()
@@ -328,7 +345,7 @@ def cadastrar_cliente(conn):
 # --- 5. Funções de Funcionário (Venda e Consulta) ---
 
 def realizar_venda(conn):
-    """FUNCIONARIO: Realiza uma venda com 1 produto e reduz o estoque."""
+    """FUNCIONARIO: Realiza uma venda com 1 produto e reduz o estoque (Corrigido para evitar duplicação)."""
     if not check_permission(['Funcionario', 'Administrador']):
         return
 
@@ -366,22 +383,18 @@ def realizar_venda(conn):
     cursor = None
     try:
         # TENTA USAR A STORED PROCEDURE 'VENDA' (MÉTODO PREFERENCIAL)
-        print("[INFO] Tentando registrar venda via Stored Procedure...")
+        print("[INFO] Tentando registrar venda via Stored Procedure (Venda)...")
         cursor = conn.cursor()
         
-        # O callproc deve conter todos os parâmetros necessários para a SP registrar a venda por completo
-        # (venda, item_venda e atualização de estoque).
-        # Ajuste os parâmetros conforme a sua definição real da SP "Venda".
-        # Exemplo: Venda(id_cliente, id_produto, qtd, total, endereco, id_transporte)
+        # Chama a SP, que deve ser responsável por toda a transação (INSERT VENDA, INSERT ITEM, UPDATE ESTOQUE)
+        # Assumindo a SP Venda aceita: (id_cliente, id_produto, qtd, id_transporte)
         cursor.callproc("Venda", (id_cliente, id_produto, qtd, id_transporte)) 
         
         conn.commit()
-        
-        # A SP não retorna o ID, então assumimos sucesso
         print("[SUCESSO] Venda realizada via Stored Procedure!")
 
     except Exception as e:
-        # SE A SP FALHAR (por permissão, erro de sintaxe, etc.), USA O MÉTODO MANUAL COMO FALLBACK
+        # SE A SP FALHAR, USA O MÉTODO MANUAL COMO FALLBACK
         print(f"[AVISO] Falha ao executar SP Venda ({e}). Usando método manual...")
         conn.rollback() # Limpa qualquer falha parcial da SP
         cursor = None
@@ -535,8 +548,6 @@ def editar_registro(conn):
             return
             
         # Converter para dicionário para facilitar o acesso por nome da coluna
-        # É necessário garantir que o cursor não esteja em modo dictionary=True aqui,
-        # ou ajustar a lógica. Mantendo a lógica de conversão manual.
         registro = dict(zip(colunas, registro_raw))
 
 
@@ -665,7 +676,7 @@ def executar_reajuste(conn):
     if not check_permission(['Administrador']): return
     
     print("\n--- Executar Reajuste Salarial ---")
-    cursor = None # Inicialização segura
+    cursor = None
     try:
         percentual = float(input("Digite o percentual de reajuste (ex: 5.5): "))
         categoria = input("Digite a categoria (vendedor, gerente, CEO): ").lower()
@@ -686,16 +697,16 @@ def executar_reajuste(conn):
     except Exception as e:
         print(f"[ERRO] Falha ao executar Reajuste: {e}")
     finally:
-        if cursor: # Fechamento seguro
+        if cursor:
             cursor.close()
 
 def executar_sorteio(conn):
-    """ADMIN: Executa Stored Procedure Sorteio. CORRIGIDO para múltiplos resultados de SP."""
+    """ADMIN: Executa Stored Procedure Sorteio."""
     if not check_permission(['Administrador']): 
         return
 
     print("\n--- Executar Sorteio de Cliente (SP Sorteio) ---")
-    cursor = None # Inicialização segura
+    cursor = None
     try:
         # Usa cursor.callproc para lidar melhor com Stored Procedures que retornam múltiplos conjuntos
         cursor = conn.cursor(dictionary=True)
@@ -725,7 +736,7 @@ def executar_sorteio(conn):
     except Exception as e:
         print(f"[ERRO] Falha ao executar Sorteio: {e}")
     finally:
-        if cursor: # Fechamento seguro
+        if cursor:
             cursor.close()
 
 
@@ -735,7 +746,7 @@ def executar_estatisticas(conn):
         return
 
     print("\n--- Executar Estatísticas de Vendas (SP Estatísticas) ---")
-    cursor = None # Inicialização segura
+    cursor = None
 
     try:
         cursor = conn.cursor(dictionary=True)
@@ -774,7 +785,7 @@ def executar_estatisticas(conn):
         print(f"[ERRO] Falha ao executar Estatísticas: {e}")
         print("Detalhes: O usuário pode não ter permissão ou o SP pode estar ausente.")
     finally:
-        if cursor: # Fechamento seguro
+        if cursor:
             cursor.close()
 
 
@@ -869,7 +880,7 @@ def deletar_generico(conn):
     while True:
         clear_screen()
         print(f"--- OPÇÕES DE EXCLUSÃO PARA A TABELA '{tabela.upper()}' (ADMIN) ---")
-        print("1. DELETAR TODOS OS REGISTROS (Limpar a Tabela Inteira - TRUNCATE TABLE) ⚠️")
+        print("1. DELETAR TODOS OS REGISTROS (Limpar a Tabela Inteira - TRUNCATE TABLE)")
         print("2. Deletar um registro específico (DELETE WHERE ID)")
         print("0. Voltar")
         
@@ -939,7 +950,7 @@ def deletar_generico(conn):
 def calcular_idade(conn):
     """Executa a function Calcula_Idade(cliente_id)."""
     if not check_permission(['Administrador']): return
-    cursor = None # Inicialização segura (CORREÇÃO DE ATRIBUTO)
+    cursor = None
     try:
         cliente_id = int(input("Digite o ID do cliente: "))
         cursor = conn.cursor()
@@ -951,14 +962,13 @@ def calcular_idade(conn):
     except ValueError:
         print("[ERRO] ID do cliente inválido.")
     finally:
-        # Fechamento seguro (CORREÇÃO DE ATRIBUTO)
         if cursor: 
             cursor.close()
 
 def somar_frete(conn):
     """Executa a function Soma_Frete(venda_id)."""
     if not check_permission(['Administrador']): return
-    cursor = None # Inicialização segura (CORREÇÃO DE ATRIBUTO)
+    cursor = None
     try:
         venda_id = int(input("Digite o ID da venda: "))
         cursor = conn.cursor()
@@ -971,13 +981,13 @@ def somar_frete(conn):
     except ValueError:
         print("[ERRO] ID da venda inválido.")
     finally:
-        if cursor: # Fechamento seguro (CORREÇÃO DE ATRIBUTO)
+        if cursor:
             cursor.close()
 
 def calcular_arrecadado(conn):
     """Executa a function Arrecadado(data, id_vendedor) que calcula total de vendas."""
     if not check_permission(['Administrador']): return
-    cursor = None # Inicialização segura (CORREÇÃO DE ATRIBUTO)
+    cursor = None
     try:
         # A função Arrecadado no SQL espera 2 argumentos (data, id_vendedor).
         print("Para usar Arrecadado(data, id_vendedor) é necessário fornecer os parâmetros.")
@@ -985,7 +995,7 @@ def calcular_arrecadado(conn):
         id_vendedor_param = int(input("Digite o ID do Vendedor: "))
 
         cursor = conn.cursor()
-        # CORREÇÃO: Chamando como FUNCTION (SELECT) e não como PROCEDURE (CALL)
+        # Chamando como FUNCTION (SELECT) e não como PROCEDURE (CALL)
         cursor.execute(f"SELECT Arrecadado(%s, %s);", (data_param, id_vendedor_param))
         total_arrecadado = cursor.fetchone()[0]
 
@@ -999,7 +1009,7 @@ def calcular_arrecadado(conn):
     except ValueError:
         print("[ERRO] Entrada de parâmetros inválida.")
     finally:
-        if cursor: # Fechamento seguro (CORREÇÃO DE ATRIBUTO)
+        if cursor:
             cursor.close()
 
 
@@ -1077,7 +1087,7 @@ def menu_admin(conn):
     while True:
         clear_screen()
         print(f"--- MENU ADMINISTRADOR (Usuário: {CURRENT_USER}) ---")
-        print("1. Criar / Preencher Dados Nativos (Reinicializar banco)")
+        print("1. GERENCIAR SETUP DE DADOS (Limpar e/ou Preencher Dados Nativos)")
         print("2. Gerenciar Registros (CRUD Completo)")  
         print("3. Executar Procedures e Funções de Gestão")
         print("--- CONSULTAS LIVRES ---")
@@ -1087,11 +1097,10 @@ def menu_admin(conn):
         choice = input("\nEscolha uma opção: ").strip()
 
         # ---------------------------
-        # 1) CRIAR / REINICIAR DB
+        # 1) GERENCIAR SETUP DE DADOS (Limpar e/ou Preencher)
         # ---------------------------
         if choice == '1':
             criar_e_destruir_db()
-            # input("Pressione Enter para continuar...") # Removido pois já está em criar_e_destruir_db
 
         # ---------------------------
         # 2) CRUD COMPLETO
@@ -1118,7 +1127,7 @@ def menu_admin(conn):
                     print("[ERRO] Opção inválida."); time.sleep(1)
                 
                 input("Pressione Enter para continuar...")
-                if sub_choice not in ['1', '2', '3']: break # Sai do sub-menu se não for CRUD
+                if sub_choice == '4': break
 
 
         # ---------------------------
@@ -1178,7 +1187,6 @@ def menu_admin(conn):
             print("[ERRO] Opção inválida.")
             time.sleep(1)
 
-# --- FUNÇÃO MODIFICADA: Gerente agora tem CRUD (sem TRUNCATE) em todas as tabelas ---
 def menu_gerente(conn):
     """Menu para o Gerente (Busca, Edição, Apagar por ID, Estatísticas)."""
     if not check_permission(['Gerente', 'Administrador']): return
@@ -1188,7 +1196,7 @@ def menu_gerente(conn):
         print("--- CRUD (Todas as Tabelas) ---")
         print("1. Consultar Registros")
         print("2. Editar Registro (por ID)")
-        print("3. Apagar Registro (por ID)")
+        print("3. Apagar Registro (por ID)") # Emojis removidos
         print("--- CONSULTA AVANÇADA ---")
         print("4. Executar Estatísticas de Vendas")
         print("0. Voltar ao Menu Principal / Sair")
